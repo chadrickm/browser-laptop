@@ -79,9 +79,6 @@ const fakeElectron = {
     defaultSession: {
       partition: 'default'
     }
-  },
-  extensions: {
-    createTab: function () {}
   }
 }
 

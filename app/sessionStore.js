@@ -656,9 +656,6 @@ module.exports.defaultAppState = () => {
         sites: topSites,
         ignoredTopSites: [],
         pinnedTopSites: pinnedTopSites
-      },
-      welcome: {
-        showOnLoad: true
       }
     },
     trackingProtection: {
