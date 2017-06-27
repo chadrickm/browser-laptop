@@ -302,6 +302,9 @@ AppStore
     objectsById: {
       [string of objectId joined by pipes |]: Array.<string> // array key path within appState, so we can do appState.getIn({key path})
     },
+    pendingRecords: { // OrderedMap of unconfirmed (not yet downloaded) sync records
+      [SHA512 of record properties]: object // Record sent with SEND_SYNC_RECORDS; see also pendingRecordKey and syncReducer
+    },
     seed: Array.<number>,
     seedQr: string, // data URL of QR code representing the seed
     setupError: string? // indicates that an error occurred during sync setup

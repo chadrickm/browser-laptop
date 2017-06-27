@@ -765,6 +765,30 @@ Dispatches a message to set objectId for a syncable object.
 
 
 
+### pendSyncRecords(records:) 
+
+Add records sent with sync lib's SEND_SYNC_RECORDS to the appState
+records pending upload. After we download records via the sync lib
+we run confirmSyncRecords.
+
+**Parameters**
+
+**records:**: `Object`, Array.<object>
+
+
+
+### confirmSyncRecords(records:) 
+
+Remove records from the appState's records pending upload.
+This function is called after we download the records from the sync
+library.
+
+**Parameters**
+
+**records:**: `Object`, Array.<object>
+
+
+
 ### saveSyncDevices(devices) 
 
 Dispatch to update sync devices cache.

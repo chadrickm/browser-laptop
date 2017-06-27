@@ -61,6 +61,7 @@ const appStoreChangeCallback = function (diffs) {
 
   // Site locations created by the diffs
   let createdSiteLocations = []
+  let pendingRecords = []
 
   diffs.forEach((diff) => {
     if (!diff || !diff.path) {
@@ -133,35 +134,46 @@ const appStoreChangeCallback = function (diffs) {
       const objectId = syncUtil.siteKeyToObjectId(state, statePath[1])
       if (objectId) {
         // Delete the site from both history and bookmarks
-        sendSyncRecords(backgroundSender, action, [{
-          name: 'bookmark',
-          objectId,
-          value: {}
-        }])
-        sendSyncRecords(backgroundSender, action, [{
-          name: 'historySite',
-          objectId,
-          value: {}
-        }])
+        pendingRecords.push(
+          sendSyncRecords(backgroundSender, action, [{
+            name: 'bookmark',
+            objectId,
+            value: {}
+          }])
+        )
+        pendingRecords.push(
+          sendSyncRecords(backgroundSender, action, [{
+            name: 'historySite',
+            objectId,
+            value: {}
+          }])
+        )
       }
     } else if (entry && entry.toJS) {
       const entryJS = entry.toJS()
       if (action === writeActions.DELETE && isSite) {
         const tags = entryJS.tags || []
-        sendSyncRecords(backgroundSender, action, [{
-          objectId: entryJS.objectId,
-          value: {},
-          name: tags.includes(siteTags.BOOKMARK) || siteTags.includes(siteTags.BOOKMARK_FOLDER)
-            ? 'historySite' // if the site is still a bookmark, it must have been deleted from history
-            : 'bookmark'
-        }])
+        pendingRecords.push(
+          sendSyncRecords(backgroundSender, action, [{
+            objectId: entryJS.objectId,
+            value: {},
+            name: tags.includes(siteTags.BOOKMARK) || siteTags.includes(siteTags.BOOKMARK_FOLDER)
+              ? 'historySite' // if the site is still a bookmark, it must have been deleted from history
+              : 'bookmark'
+          }])
+        )
       } else {
-        sendSyncRecords(backgroundSender, action, [
-          isSite ? syncUtil.createSiteData(entryJS, state) : syncUtil.createSiteSettingsData(statePath[1], entryJS)
-        ])
+        pendingRecords.push(
+          sendSyncRecords(backgroundSender, action, [
+            isSite ? syncUtil.createSiteData(entryJS, state) : syncUtil.createSiteSettingsData(statePath[1], entryJS)
+          ])
+        )
       }
     }
   })
+  if (pendingRecords.length > 0) {
+    appActions.pendSyncRecords(pendingRecords)
+  }
 }
 
 /**
@@ -169,6 +181,7 @@ const appStoreChangeCallback = function (diffs) {
  * @param {event.sender} sender
  * @param {number} action
  * @param {Array.<{objectId: Array, name: string, value: Object}>} data
+ * @returns {Array.<object>} records which were sent
  */
 const sendSyncRecords = (sender, action, data) => {
   if (!deviceId) {
@@ -182,7 +195,8 @@ const sendSyncRecords = (sender, action, data) => {
     (category.settingName && !getSetting(settings[category.settingName]))) {
     return
   }
-  sender.send(syncMessages.SEND_SYNC_RECORDS, category.categoryName, data.map((item) => {
+  console.log(`Sending ${data.length} sync records`)
+  const records = data.map((item) => {
     if (!item || !item.name || !item.value || !item.objectId) {
       return
     }
@@ -192,7 +206,9 @@ const sendSyncRecords = (sender, action, data) => {
       objectId: item.objectId,
       [item.name]: item.value
     }
-  }))
+  })
+  sender.send(syncMessages.SEND_SYNC_RECORDS, category.categoryName, records)
+  return records
 }
 
 const dispatcherCallback = (action) => {
@@ -255,7 +271,9 @@ module.exports.onSyncReady = (isFirstRun, e) => {
    * call; there's not enough time to dispatch id updates to appStore.sites.
    * @param {Immutable.Map} site
    */
+  let pendingRecords = []
   const folderToObjectId = {}
+  let bookmarksToSync = []
   const shouldSyncBookmark = (site) => {
     if (!site) { return false }
     // originalSeed is set on reset to prevent synced bookmarks on a device
@@ -287,12 +305,19 @@ module.exports.onSyncReady = (isFirstRun, e) => {
       folderToObjectId[folderId] = record.objectId
     }
 
-    sendSyncRecords(e.sender, writeActions.CREATE, [record])
+    bookmarksToSync.push(record)
   }
 
   // Sync bookmarks that have not been synced yet.
-  siteUtil.getBookmarks(sites).filter(site => shouldSyncBookmark(site))
-    .forEach(syncBookmark)
+  sites.forEach((site) => {
+    if (siteUtil.isSiteBookmarked(sites, site) !== true || shouldSyncBookmark(site) !== true) {
+      return
+    }
+    syncBookmark(site)
+  })
+  pendingRecords.push(
+    sendSyncRecords(e.sender, writeActions.CREATE, bookmarksToSync)
+  )
 
   // Sync site settings that have not been synced yet
   // FIXME: If Sync was disabled and settings were changed, those changes
@@ -302,10 +327,24 @@ module.exports.onSyncReady = (isFirstRun, e) => {
       return !value.get('objectId') && syncUtil.isSyncable('siteSetting', value)
     }).toJS()
   if (siteSettings) {
-    sendSyncRecords(e.sender, writeActions.UPDATE,
-      Object.keys(siteSettings).map((item) => {
-        return syncUtil.createSiteSettingsData(item, siteSettings[item])
-      }))
+    const siteSettingsData = Object.keys(siteSettings).map((item) => {
+      return syncUtil.createSiteSettingsData(item, siteSettings[item])
+    })
+    pendingRecords.push(
+      sendSyncRecords(e.sender, writeActions.UPDATE, siteSettingsData)
+    )
+  }
+
+  // Sync records which haven't been confirmed yet.
+  const oldPendingRecords = appState.getIn(['sync', 'pendingRecords']).toArray()
+  if (oldPendingRecords.length > 0) {
+    log(`Sending ${oldPendingRecords.length} pending records`)
+    e.sender.send(syncMessages.SEND_SYNC_RECORDS, undefined, oldPendingRecords)
+  }
+
+  // Pend records sent during init
+  if (pendingRecords.length > 0) {
+    appActions.pendSyncRecords(pendingRecords)
   }
 
   appActions.createSyncCache()
@@ -429,10 +468,14 @@ module.exports.init = function (appState) {
     appActions.setSyncSetupError(error || locale.translation('unknownError'))
   })
   ipcMain.on(syncMessages.GET_EXISTING_OBJECTS, (event, categoryName, records) => {
+    appActions.confirmSyncRecords(records)
     if (!syncEnabled()) {
       return
     }
     let devices = {}
+    records.forEach(record => {
+      log(`got record: ${JSON.stringify(record)}`)
+    })
     log(`getting existing objects for ${records.length} ${categoryName}`)
     if (!CATEGORY_NAMES.includes(categoryName) || !records || !records.length) {
       return

@@ -4,6 +4,8 @@
 'use strict'
 
 const Immutable = require('immutable')
+const appActions = require('../actions/appActions')
+const crypto = require('crypto')
 const writeActions = require('../constants/sync/proto').actions
 const siteTags = require('../constants/siteTags')
 const siteUtil = require('./siteUtil')
@@ -435,8 +437,6 @@ module.exports.isSyncable = (type, item) => {
  * @returns {Array.<number>}
  */
 module.exports.newObjectId = (objectPath) => {
-  const crypto = require('crypto')
-  const appActions = require('../actions/appActions')
   const objectId = new Immutable.List(crypto.randomBytes(16))
   appActions.setObjectId(objectId, objectPath)
   return objectId.toJS()
@@ -589,4 +589,22 @@ const deepArrayify = (sourceObject) => {
  */
 module.exports.ipcSafeObject = (object) => {
   return deepArrayify(object)
+}
+
+ // {"action":0,"bookmark":{"hideInToolbar":false,"isFolder":false,"site":{"creationTime":0,"customTitle":"","favicon":"https://www.google.com/images/branding/product/ico/googleg_lodp.ico","lastAccessedTime":1498498437120,"location":"https://www.google.com/","title":"Google"}},"deviceId":{"type":"Buffer","data":[0]},"objectData":"bookmark","objectId":{"type":"Buffer","data":[96,11,254,98,235,97,169,91,208,112,117,210,71,249,77,155]},"syncTimestamp":1498498441768}
+ // "objectId":{"0":96,"1":11,"2":254,"3":98,"4":235,"5":97,"6":169,"7":91,"8":208,"9":112,"10":117,"11":210,"12":71,"13":249,"14":77,"15":155}
+
+ // For pendingRecordKey()
+ // const PENDING_RECORD_PROPERTIES = ['action', 'bookmark', 'device', 'deviceId', 'historySite', 'objectData', 'siteSetting']
+
+/**
+ * @param record Sync record, as sent with SEND_SYNC_RECORDS or received
+ * from the sync library.
+ * @returns {string} key in
+ */
+module.exports.pendingRecordKey = (record) => {
+  const hash = crypto.createHash('sha512')
+  // hash.update // TODO
+  // objectId
+  // deviceId
 }
